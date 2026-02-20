@@ -1,0 +1,1711 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>key.switch</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      height: 100%;
+      background: #ffffff; /* 纯白画布 */
+      color: #000;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Noto Sans Mono CJK SC", "Noto Sans Mono", "Source Code Pro", monospace;
+      overflow: hidden;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* 舞台与连线层 */
+    #stage { position: relative; width: 100%; height: 100%; }
+    #wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    #wires line {
+      stroke: #000;
+      stroke-width: 2;
+      stroke-linecap: round;
+      shape-rendering: crispEdges;
+    }
+    #wires path.poppy-curve {
+      stroke: #000;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 600ms cubic-bezier(.2,.8,.2,1);
+    }
+    #wires path.cream-curve {
+      stroke: #000;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 600ms cubic-bezier(.2,.8,.2,1);
+    }
+    #wires path.thocky-curve {
+      stroke: #000;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 600ms cubic-bezier(.2,.8,.2,1);
+    }
+    #wires path.thocky-curve-2 {
+      stroke: #000;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 600ms cubic-bezier(.2,.8,.2,1);
+    }
+    #wires path.ibm-curve-1,
+    #wires path.ibm-curve-2 {
+      stroke: #000;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 600ms cubic-bezier(.2,.8,.2,1);
+    }
+    #wires path.clicky-curve {
+      stroke: #000;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 600ms cubic-bezier(.2,.8,.2,1);
+    }
+    #wires path.smooth-curve {
+      stroke: #000;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 600ms cubic-bezier(.2,.8,.2,1);
+    }
+    #wires path.quiet-curve-1,
+    #wires path.quiet-curve-2 {
+      stroke: #000;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 600ms cubic-bezier(.2,.8,.2,1);
+    }
+
+    /* 词条节点：极简黑字 */
+    .entry {
+      position: absolute;
+      left: 0; top: 0; /* 固定基准，不再用于过渡 */
+      transform: translate(var(--tx, 0px), var(--ty, 0px)) translate(-50%, -50%) scale(var(--s, 1));
+      color: #000;
+      font-size: 16px;
+      line-height: 1;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      white-space: nowrap;
+      opacity: 1;
+      transition: transform 300ms cubic-bezier(.2,.8,.2,1), opacity 300ms ease, color 240ms ease;
+      will-change: transform, opacity, color;
+    }
+    .entry.folder { font-weight: 600; }
+    .entry.file { font-weight: 500; }
+    .entry.playing { text-decoration: underline; }
+    .entry:focus-visible { outline: none; text-decoration: underline; }
+
+    .entry.spawn { opacity: 0; --s: .9; }
+    .entry:hover { --s: 1.04; }
+
+    /* poppy GIF helper */
+    .poppy-gif.hidden { display: none; }
+    .cream-gif.hidden { display: none; }
+    .thocky-gif.hidden { display: none; }
+    .thocky2-gif.hidden { display: none; }
+    .ibm-gif1.hidden { display: none; }
+    .ibm-gif2.hidden { display: none; }
+    .clicky-gif.hidden { display: none; }
+    .smooth-gif.hidden { display: none; }
+    .quiet-gif1.hidden { display: none; }
+    .quiet-gif2.hidden { display: none; }
+
+    /* 响应式微调：移动端字号略小 */
+    @media (max-width: 640px) {
+      .entry { font-size: 14px; }
+    }
+  </style>
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="robots" content="noindex">
+  <meta name="description" content="#linear / #tactile 声音词条探索">
+  <meta name="format-detection" content="telephone=no">
+</head>
+<body>
+  <div id="stage" aria-label="sound explorer">
+    <svg id="wires" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+  </div>
+
+  <script>
+  (function() {
+    // 音频根目录（按片段编码以兼容 # 目录名）
+    const ROOT = ["audio","switch"]; // 真实相对路径：audio/switch
+
+    // 代码界面常见色板（取材自常见语法高亮 One Dark/VSCode 样式）
+    const COLORS = [
+      '#E06C75', // red / error
+      '#98C379', // green / string
+      '#E5C07B', // yellow / constant
+      '#61AFEF', // blue / function
+      '#C678DD', // purple / keyword
+      '#56B6C2', // cyan / type
+      '#D19A66', // orange / number
+      '#2D2D2D'  // near-black / default
+    ];
+    const pickColor = () => COLORS[Math.floor(Math.random() * COLORS.length)];
+
+    // 目录树（来自项目内实际文件布局）
+    // 说明：object 的键是子文件夹；数组是该文件夹内的文件列表；
+    //       可同时存在 { files: [..], "#sub": [..] } 的混合结构。
+    const TREE = {
+      "#linear": {
+        "#cream": [
+          "linear_cream_hmx_butter.wav",
+          "linear_cream_hmx_latte.wav",
+          "linear_cream_kaliah_avocado.wav"
+        ],
+        "#smooth": {
+          files: [
+            "linear_smooth_alpacas.wav",
+            "linear_smooth_cherry_mx_black.wav",
+            "linear_smooth_Krytox_moonv2.wav",
+            "linear_smooth_turqoise_tealios.wav",
+            "linear_tactile_smooth_tbcats_cloud_water.wav"
+          ],
+          "#thocky": [
+            "linear_smooth_thocky_gateron_black_inks.wav",
+            "linear_smooth_thocky_gateron_red_ink.wav"
+          ]
+        },
+        "#thocky": [
+          "linear_thocky_bsun_agarwood.wav",
+          "linear_thocky_durock_ice_king.wav",
+          "linear_thocky_gateron_oil_king.wav"
+        ]
+      },
+      "#tactile": {
+        "#clicky": [
+          "tactile_click_arctic_fox.wav",
+          "tactile_click_cherry_mx_blue.wav"
+        ],
+        "#cream": ["tactile_cream_nk.wav"],
+        "#ibm": ["tactile_buckling_spring.wav"],
+        "#poppy": [
+          "tactile_pop_holy_pandas.wav",
+          "tactile_pop_poison_gas.wav"
+        ],
+        "#quiet": ["tactile_quiet_cherry_mx_brown.wav"],
+        "#smooth": [
+          "linear_tactile_smooth_tbcats_cloud_water.wav",
+          "tactile_smooth_clicky_skcm_blue_alps.wav",
+          "tactile_smooth_torpe.wav"
+        ],
+        "#soft": ["tactile_soft_naevies.wav"]
+      }
+    };
+
+    // DOM refs
+    const stage = document.getElementById('stage');
+    const wires = document.getElementById('wires');
+
+    // 播放器（复用同一个）
+    const player = new Audio();
+    let playingNodeId = null;
+
+    // 节点与边
+    const nodes = new Map(); // id -> {id, type, name, segs, x, y, el, expandedFolders, expandedFiles}
+    const edges = [];        // { from, to, line } 普通父子连线
+    const anchors = new Map(); // nodeId -> { from, to, line } 根锚定连线（点击后出现）
+    const previews = new Map(); // nodeId -> { from, to, line } 悬停预览连线（临时）
+
+    // 工具：编码路径段，生成可用 URL
+    // poppy GIF & special curve state
+    let poppyGifEl = null;       // HTMLElement for the GIF container
+    let poppyCurveEl = null;     // SVGPathElement for the curve
+    let poppyFromNodeId = null;  // last source node id for curve
+    const sfxPlayer = new Audio(); // separate sfx player for GIF clicks (poppy)
+    const SIZZLE_SRC = 'audio/sfx/butter-sizzling-31128.mp3';
+
+    // cream GIF & curve state
+    let creamGifEl = null;
+    let creamCurveEl = null;
+    let creamFromNodeId = null;
+    const creamSfxPlayer = new Audio();
+    const SLIME_SRC = 'audio/sfx/slime-squish-5-218569.mp3';
+
+    // thocky GIF & curve state
+    let thockyGifEl = null;
+    let thockyCurveEl = null;
+    let thockyFromNodeId = null;
+    const thockySfxPlayer = new Audio();
+    const THUNDER_SRC = 'audio/sfx/thunder-big-wav-29190.mp3';
+    // thocky second GIF & curve (ice)
+    let thockyGifEl2 = null;
+    let thockyCurveEl2 = null;
+    const thockyIcePlayer = new Audio();
+    const ICE_SRC = 'audio/sfx/ice-break-14765.mp3';
+
+    // ibm GIFs & curves state
+    let ibmGifEl1 = null;
+    let ibmGifEl2 = null;
+    let ibmCurveEl1 = null;
+    let ibmCurveEl2 = null;
+    let ibmFromNodeId = null;
+    const ibmSpringPlayer = new Audio();
+    const ibmStovePlayer  = new Audio();
+    const SPRING_SRC = 'audio/sfx/spring-mechanism-411759.mp3';
+    const STOVE_SRC  = 'audio/sfx/electric-stove-46855.mp3';
+
+    // clicky GIF & curve state
+    let clickyGifEl = null;
+    let clickyCurveEl = null;
+    let clickyFromNodeId = null;
+    const clickySfxPlayer = new Audio();
+    const CLACK_SRC = 'audio/sfx/breaking-wood-356120.mp3';
+
+    // smooth GIF & curve state
+    let smoothGifEl = null;
+    let smoothCurveEl = null;
+    let smoothFromNodeId = null;
+    const smoothSfxPlayer = new Audio();
+    const SMOOTH_SRC = 'audio/sfx/cloud-spread-394490.mp3';
+
+    // quiet GIFs & curves state
+    let quietGifEl1 = null;
+    let quietGifEl2 = null;
+    let quietCurveEl1 = null;
+    let quietCurveEl2 = null;
+    let quietFromNodeId = null;
+    const quietFootstepsPlayer = new Audio();
+    const quietCloudPlayer = new Audio();
+    const FOOTSTEPS_SRC = 'audio/sfx/trail-walking-footsteps-246042.mp3';
+    const QUIET_CLOUD_SRC = 'audio/sfx/cloud-spread-394490.mp3';
+
+    const joinUrl = (segments) => segments.map(encodeURIComponent).join('/');
+    const fullUrlFromSegs = (segs) => joinUrl([...ROOT, ...segs]);
+
+    // 工具：根据相对段解析 TREE 节点，返回 { folders:[names], files:[names] }
+    function resolveContent(relSegs) {
+      let ref = TREE;
+      for (const s of relSegs) {
+        if (ref && typeof ref === 'object' && !Array.isArray(ref)) {
+          ref = ref[s];
+        } else {
+          ref = undefined;
+        }
+      }
+      const out = { folders: [], files: [] };
+      if (!ref) return out;
+      if (Array.isArray(ref)) {
+        out.files = ref.slice();
+        return out;
+      }
+      // object: collect subfolders and optional files
+      for (const k of Object.keys(ref)) {
+        if (k === 'files') continue;
+        out.folders.push(k);
+      }
+      if (Array.isArray(ref.files)) out.files = ref.files.slice();
+      return out;
+    }
+
+    // 碰撞检测与寻找不重叠位置
+    const COLLIDE_PAD = 8; // 词条之间的最小间距
+
+    function rectAt(el, x, y, pad = COLLIDE_PAD) {
+      const w = el.offsetWidth || 0;
+      const h = el.offsetHeight || 0;
+      const left = x - w / 2 - pad;
+      const top  = y - h / 2 - pad;
+      return {
+        left,
+        top,
+        right: left + w + pad * 2,
+        bottom: top + h + pad * 2
+      };
+    }
+
+    function intersects(a, b) {
+      return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+    }
+
+    function collidesWithAny(el, x, y, excludeId, cache) {
+      const me = rectAt(el, x, y);
+      for (const n of nodes.values()) {
+        if (n.id === excludeId) continue;
+        let other;
+        if (cache && cache.has(n.id)) {
+          other = cache.get(n.id);
+        } else {
+          other = rectAt(n.el, n.x, n.y);
+          if (cache) cache.set(n.id, other);
+        }
+        if (intersects(me, other)) return true;
+      }
+      return false;
+    }
+
+    function clampToStage(x, y) {
+      const W = stage.clientWidth, H = stage.clientHeight;
+      x = Math.max(32, Math.min(W - 32, x));
+      y = Math.max(32, Math.min(H - 32, y));
+      return { x, y };
+    }
+
+    // 从某个中心出发，沿着环形采样寻找可用空位
+    function findFreeSpot(cx, cy, el, excludeId, cache) {
+      const W = stage.clientWidth, H = stage.clientHeight;
+      const maxR = Math.hypot(W, H); // 最远尝试到对角长度
+      const baseR = 120; // 初始半径
+      const stepR = 28;  // 半径步进
+      let attempts = 0;
+      for (let r = baseR; r <= maxR; r += stepR) {
+        const steps = Math.max(8, Math.min(36, Math.round(8 + r / 40)));
+        const stepA = Math.PI * 2 / steps;
+        const jitter = (Math.random() - 0.5) * stepA * 0.6;
+        for (let i = 0; i < steps; i++) {
+          if (++attempts > 2000) {
+            return clampToStage(cx + Math.cos(i * stepA) * r, cy + Math.sin(i * stepA) * r);
+          }
+          const ang = stepA * i + jitter;
+          let x = cx + Math.cos(ang) * r;
+          let y = cy + Math.sin(ang) * r;
+          ({ x, y } = clampToStage(x, y));
+          if (!collidesWithAny(el, x, y, excludeId, cache)) {
+            return { x, y };
+          }
+        }
+      }
+      // 兜底：返回中心附近（可能会重叠，但基本不会进入此分支）
+      return clampToStage(cx + 10, cy + 10);
+    }
+
+    // 渲染：添加连线
+    function connect(fromNode, toNode) {
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('stroke', '#000');
+      line.setAttribute('stroke-width', '2');
+      wires.appendChild(line);
+      edges.push({ from: fromNode.id, to: toNode.id, line });
+      updateWirePosition(fromNode, toNode, line);
+
+      // 简化：移除线条绘制动画，避免初期布局抖动
+    }
+
+    // 更新单条连线
+    function updateWirePosition(fromNode, toNode, lineEl) {
+      const sRect = stage.getBoundingClientRect();
+      const a = fromNode.el.getBoundingClientRect();
+      const b = toNode.el.getBoundingClientRect();
+      const ax = a.left + a.width/2 - sRect.left;
+      const ay = a.top + a.height/2 - sRect.top;
+      const bx = b.left + b.width/2 - sRect.left;
+      const by = b.top + b.height/2 - sRect.top;
+      lineEl.setAttribute('x1', ax);
+      lineEl.setAttribute('y1', ay);
+      lineEl.setAttribute('x2', bx);
+      lineEl.setAttribute('y2', by);
+    }
+
+    // 批量更新所有连线（窗口尺寸变化等）
+    // poppy curve helpers
+    function updatePoppyCurve() {
+      if (!poppyCurveEl || !poppyFromNodeId) return;
+      const fromNode = nodes.get(poppyFromNodeId);
+      if (!fromNode || !fromNode.el || !poppyGifEl) return;
+      const sRect = stage.getBoundingClientRect();
+      const a = fromNode.el.getBoundingClientRect();
+      const b = poppyGifEl.getBoundingClientRect();
+      const ax = a.left + a.width/2 - sRect.left;
+      const ay = a.top + a.height/2 - sRect.top;
+      const bx = b.left + b.width/2 - sRect.left;
+      const by = b.top + b.height/2 - sRect.top;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const dist = Math.hypot(dx, dy) || 1;
+      const bend = Math.min(160, Math.max(60, dist * 0.3));
+      const cx1 = ax + dx * 0.33;
+      const cy1 = ay - Math.sign(dy || 1) * bend;
+      const cx2 = ax + dx * 0.66;
+      const cy2 = by + Math.sign(dy || 1) * bend;
+      const d = `M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`;
+      poppyCurveEl.setAttribute('d', d);
+    }
+
+    function ensurePoppyGif() {
+      if (poppyGifEl) return poppyGifEl;
+      const wrap = document.createElement('div');
+      wrap.className = 'poppy-gif hidden';
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.style.position = 'absolute';
+      wrap.style.right = '24px';
+      wrap.style.top = '50%';
+      wrap.style.transform = 'translateY(-50%)';
+      wrap.style.width = '160px';
+      wrap.style.height = '160px';
+      wrap.style.border = '2px solid #000';
+      wrap.style.borderRadius = '8px';
+      wrap.style.overflow = 'hidden';
+      wrap.style.boxShadow = '0 4px 16px rgba(0,0,0,.15)';
+      wrap.style.cursor = 'pointer';
+      const img = document.createElement('img');
+      img.src = 'gif/art design GIF by Simon Falk.gif';
+      img.alt = 'art design GIF by Simon Falk';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      wrap.appendChild(img);
+      wrap.addEventListener('click', () => {
+        try {
+          const isSameSrc = (sfxPlayer.src || '').includes(SIZZLE_SRC);
+          const isPlaying = !sfxPlayer.paused && !sfxPlayer.ended && sfxPlayer.currentTime > 0;
+          if (isSameSrc && isPlaying) {
+            // toggle off: stop and reset
+            sfxPlayer.pause();
+            sfxPlayer.currentTime = 0;
+            wrap.setAttribute('aria-pressed', 'false');
+            return;
+          }
+          if (!isSameSrc) sfxPlayer.src = SIZZLE_SRC;
+          sfxPlayer.currentTime = 0;
+          sfxPlayer.play().then(() => { wrap.setAttribute('aria-pressed', 'true'); }).catch(() => {});
+        } catch (_) {}
+      });
+      // reflect ended state
+      sfxPlayer.addEventListener('ended', () => { try { wrap.setAttribute('aria-pressed', 'false'); } catch(_){} });
+      wrap.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); wrap.click(); } });
+      stage.appendChild(wrap);
+      poppyGifEl = wrap;
+      return wrap;
+    }
+
+    function ensurePoppyCurve() {
+      if (poppyCurveEl) return poppyCurveEl;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.classList.add('poppy-curve');
+      path.setAttribute('stroke', '#000');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      wires.appendChild(path);
+      poppyCurveEl = path;
+      return path;
+    }
+
+    function showPoppyFlow(fromNode) {
+      ensurePoppyGif();
+      ensurePoppyCurve();
+      poppyGifEl.classList.remove('hidden');
+      poppyFromNodeId = fromNode.id;
+      updatePoppyCurve();
+      try {
+        const len = poppyCurveEl.getTotalLength();
+        poppyCurveEl.style.strokeDasharray = String(len);
+        poppyCurveEl.style.strokeDashoffset = String(len);
+        void poppyCurveEl.getBoundingClientRect();
+        poppyCurveEl.style.strokeDashoffset = '0';
+      } catch (_) {}
+    }
+
+    // cream curve helpers
+    function updateCreamCurve() {
+      if (!creamCurveEl || !creamFromNodeId) return;
+      const fromNode = nodes.get(creamFromNodeId);
+      if (!fromNode || !fromNode.el || !creamGifEl) return;
+      const sRect = stage.getBoundingClientRect();
+      const a = fromNode.el.getBoundingClientRect();
+      const b = creamGifEl.getBoundingClientRect();
+      const ax = a.left + a.width/2 - sRect.left;
+      const ay = a.top + a.height/2 - sRect.top;
+      const bx = b.left + b.width/2 - sRect.left;
+      const by = b.top + b.height/2 - sRect.top;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const dist = Math.hypot(dx, dy) || 1;
+      const bend = Math.min(160, Math.max(60, dist * 0.3));
+      const cx1 = ax + dx * 0.33;
+      const cy1 = ay - Math.sign(dy || 1) * bend;
+      const cx2 = ax + dx * 0.66;
+      const cy2 = by + Math.sign(dy || 1) * bend;
+      const d = `M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`;
+      if (creamCurveEl) creamCurveEl.setAttribute('d', d);
+    }
+
+    function ensureCreamGif() {
+      if (creamGifEl) return creamGifEl;
+      const wrap = document.createElement('div');
+      wrap.className = 'cream-gif hidden';
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.style.position = 'absolute';
+      wrap.style.left = '24px';
+      wrap.style.top = '50%';
+      wrap.style.transform = 'translateY(-50%)';
+      wrap.style.width = '160px';
+      wrap.style.height = '160px';
+      wrap.style.border = '2px solid #000';
+      wrap.style.borderRadius = '8px';
+      wrap.style.overflow = 'hidden';
+      wrap.style.boxShadow = '0 4px 16px rgba(0,0,0,.15)';
+      wrap.style.cursor = 'pointer';
+      const img = document.createElement('img');
+      img.src = 'gif/Bubble Gum Animation GIF by xponentialdesign.gif';
+      img.alt = 'Bubble Gum Animation GIF by xponentialdesign';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      wrap.appendChild(img);
+      // toggle play/stop for slime sfx
+      wrap.addEventListener('click', () => {
+        try {
+          const isSameSrc = (creamSfxPlayer.src || '').includes(SLIME_SRC);
+          const isPlaying = !creamSfxPlayer.paused && !creamSfxPlayer.ended && creamSfxPlayer.currentTime > 0;
+          if (isSameSrc && isPlaying) {
+            creamSfxPlayer.pause();
+            creamSfxPlayer.currentTime = 0;
+            wrap.setAttribute('aria-pressed', 'false');
+            return;
+          }
+          if (!isSameSrc) creamSfxPlayer.src = SLIME_SRC;
+          creamSfxPlayer.currentTime = 0;
+          creamSfxPlayer.play().then(() => { wrap.setAttribute('aria-pressed', 'true'); }).catch(() => {});
+        } catch (_) {}
+      });
+      creamSfxPlayer.addEventListener('ended', () => { try { wrap.setAttribute('aria-pressed', 'false'); } catch(_){} });
+      wrap.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); wrap.click(); } });
+      stage.appendChild(wrap);
+      creamGifEl = wrap;
+      return wrap;
+    }
+
+    function ensureCreamCurve() {
+      if (creamCurveEl) return creamCurveEl;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.classList.add('cream-curve');
+      path.setAttribute('stroke', '#000');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      wires.appendChild(path);
+      creamCurveEl = path;
+      return path;
+    }
+
+    function showCreamFlow(fromNode) {
+      ensureCreamGif();
+      ensureCreamCurve();
+      creamGifEl.classList.remove('hidden');
+      creamFromNodeId = fromNode.id;
+      updateCreamCurve();
+      try {
+        const len = creamCurveEl.getTotalLength();
+        creamCurveEl.style.strokeDasharray = String(len);
+        creamCurveEl.style.strokeDashoffset = String(len);
+        void creamCurveEl.getBoundingClientRect();
+        creamCurveEl.style.strokeDashoffset = '0';
+      } catch (_) {}
+    }
+
+    // thocky curve helpers
+    function updateThockyCurve() {
+      if (!thockyCurveEl || !thockyFromNodeId) return;
+      const fromNode = nodes.get(thockyFromNodeId);
+      if (!fromNode || !fromNode.el || !thockyGifEl) return;
+      const sRect = stage.getBoundingClientRect();
+      const a = fromNode.el.getBoundingClientRect();
+      const b = thockyGifEl.getBoundingClientRect();
+      const ax = a.left + a.width/2 - sRect.left;
+      const ay = a.top + a.height/2 - sRect.top;
+      const bx = b.left + b.width/2 - sRect.left;
+      const by = b.top + b.height/2 - sRect.top;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const dist = Math.hypot(dx, dy) || 1;
+      const bend = Math.min(160, Math.max(60, dist * 0.3));
+      const cx1 = ax + dx * 0.33;
+      const cy1 = ay - Math.sign(dy || 1) * bend;
+      const cx2 = ax + dx * 0.66;
+      const cy2 = by + Math.sign(dy || 1) * bend;
+      const d = `M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`;
+      if (thockyCurveEl) thockyCurveEl.setAttribute('d', d);
+    }
+
+    function updateThockyCurve2() {
+      if (!thockyCurveEl2 || !thockyFromNodeId) return;
+      const fromNode = nodes.get(thockyFromNodeId);
+      if (!fromNode || !fromNode.el || !thockyGifEl2) return;
+      const sRect = stage.getBoundingClientRect();
+      const a = fromNode.el.getBoundingClientRect();
+      const b = thockyGifEl2.getBoundingClientRect();
+      const ax = a.left + a.width/2 - sRect.left;
+      const ay = a.top + a.height/2 - sRect.top;
+      const bx = b.left + b.width/2 - sRect.left;
+      const by = b.top + b.height/2 - sRect.top;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const dist = Math.hypot(dx, dy) || 1;
+      const bend = Math.min(160, Math.max(60, dist * 0.3));
+      const cx1 = ax + dx * 0.33;
+      const cy1 = ay - Math.sign(dy || 1) * bend;
+      const cx2 = ax + dx * 0.66;
+      const cy2 = by + Math.sign(dy || 1) * bend;
+      const d = `M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`;
+      if (thockyCurveEl2) thockyCurveEl2.setAttribute('d', d);
+    }
+
+    function ensureThockyGif() {
+      if (thockyGifEl) return thockyGifEl;
+      const wrap = document.createElement('div');
+      wrap.className = 'thocky-gif hidden';
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.style.position = 'absolute';
+      wrap.style.left = '50%';
+      wrap.style.bottom = '24px';
+      wrap.style.transform = 'translateX(-50%)';
+      wrap.style.width = '180px';
+      wrap.style.height = '180px';
+      wrap.style.border = '2px solid #000';
+      wrap.style.borderRadius = '8px';
+      wrap.style.overflow = 'hidden';
+      wrap.style.boxShadow = '0 4px 16px rgba(0,0,0,.15)';
+      wrap.style.cursor = 'pointer';
+      const img = document.createElement('img');
+      img.src = 'gif/after effects GIF by mr. div.gif';
+      img.alt = 'after effects GIF by mr. div';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      wrap.appendChild(img);
+      // toggle play/stop for thunder sfx
+      wrap.addEventListener('click', () => {
+        try {
+          const isSameSrc = (thockySfxPlayer.src || '').includes(THUNDER_SRC);
+          const isPlaying = !thockySfxPlayer.paused && !thockySfxPlayer.ended && thockySfxPlayer.currentTime > 0;
+          if (isSameSrc && isPlaying) {
+            thockySfxPlayer.pause();
+            thockySfxPlayer.currentTime = 0;
+            wrap.setAttribute('aria-pressed', 'false');
+            return;
+          }
+          if (!isSameSrc) thockySfxPlayer.src = THUNDER_SRC;
+          thockySfxPlayer.currentTime = 0;
+          thockySfxPlayer.play().then(() => { wrap.setAttribute('aria-pressed', 'true'); }).catch(() => {});
+        } catch (_) {}
+      });
+      thockySfxPlayer.addEventListener('ended', () => { try { wrap.setAttribute('aria-pressed', 'false'); } catch(_){} });
+      wrap.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); wrap.click(); } });
+      stage.appendChild(wrap);
+      thockyGifEl = wrap;
+      return wrap;
+    }
+
+    function ensureThockyGif2() {
+      if (thockyGifEl2) return thockyGifEl2;
+      const wrap = document.createElement('div');
+      wrap.className = 'thocky2-gif hidden';
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.style.position = 'absolute';
+      wrap.style.right = '24px';
+      wrap.style.bottom = '24px';
+      wrap.style.width = '180px';
+      wrap.style.height = '180px';
+      wrap.style.border = '2px solid #000';
+      wrap.style.borderRadius = '8px';
+      wrap.style.overflow = 'hidden';
+      wrap.style.boxShadow = '0 4px 16px rgba(0,0,0,.15)';
+      wrap.style.cursor = 'pointer';
+      const img = document.createElement('img');
+      img.src = 'gif/Black And White Art GIF by Pi-Slices.gif';
+      img.alt = 'Black And White Art GIF by Pi-Slices';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      wrap.appendChild(img);
+      // toggle play/stop for ice sfx
+      wrap.addEventListener('click', () => {
+        try {
+          const isSameSrc = (thockyIcePlayer.src || '').includes(ICE_SRC);
+          const isPlaying = !thockyIcePlayer.paused && !thockyIcePlayer.ended && thockyIcePlayer.currentTime > 0;
+          if (isSameSrc && isPlaying) {
+            thockyIcePlayer.pause();
+            thockyIcePlayer.currentTime = 0;
+            wrap.setAttribute('aria-pressed', 'false');
+            return;
+          }
+          if (!isSameSrc) thockyIcePlayer.src = ICE_SRC;
+          thockyIcePlayer.currentTime = 0;
+          thockyIcePlayer.play().then(() => { wrap.setAttribute('aria-pressed', 'true'); }).catch(() => {});
+        } catch (_) {}
+      });
+      thockyIcePlayer.addEventListener('ended', () => { try { wrap.setAttribute('aria-pressed', 'false'); } catch(_){} });
+      wrap.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); wrap.click(); } });
+      stage.appendChild(wrap);
+      thockyGifEl2 = wrap;
+      return wrap;
+    }
+
+    function ensureThockyCurve() {
+      if (thockyCurveEl) return thockyCurveEl;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.classList.add('thocky-curve');
+      path.setAttribute('stroke', '#000');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      wires.appendChild(path);
+      thockyCurveEl = path;
+      return path;
+    }
+
+    function ensureThockyCurve2() {
+      if (thockyCurveEl2) return thockyCurveEl2;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.classList.add('thocky-curve-2');
+      path.setAttribute('stroke', '#000');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      wires.appendChild(path);
+      thockyCurveEl2 = path;
+      return path;
+    }
+
+    function showThockyFlow(fromNode) {
+      ensureThockyGif();
+      ensureThockyCurve();
+      ensureThockyGif2();
+      ensureThockyCurve2();
+      thockyGifEl.classList.remove('hidden');
+      thockyGifEl2.classList.remove('hidden');
+      thockyFromNodeId = fromNode.id;
+      updateThockyCurve();
+      updateThockyCurve2();
+      try {
+        const len1 = thockyCurveEl.getTotalLength();
+        thockyCurveEl.style.strokeDasharray = String(len1);
+        thockyCurveEl.style.strokeDashoffset = String(len1);
+        void thockyCurveEl.getBoundingClientRect();
+        thockyCurveEl.style.strokeDashoffset = '0';
+      } catch (_) {}
+      try {
+        const len2 = thockyCurveEl2.getTotalLength();
+        thockyCurveEl2.style.strokeDasharray = String(len2);
+        thockyCurveEl2.style.strokeDashoffset = String(len2);
+        void thockyCurveEl2.getBoundingClientRect();
+        thockyCurveEl2.style.strokeDashoffset = '0';
+      } catch (_) {}
+    }
+
+    // ibm curves helpers
+    function updateIbmCurve1() {
+      if (!ibmCurveEl1 || !ibmFromNodeId) return;
+      const fromNode = nodes.get(ibmFromNodeId);
+      if (!fromNode || !fromNode.el || !ibmGifEl1) return;
+      const sRect = stage.getBoundingClientRect();
+      const a = fromNode.el.getBoundingClientRect();
+      const b = ibmGifEl1.getBoundingClientRect();
+      const ax = a.left + a.width/2 - sRect.left;
+      const ay = a.top + a.height/2 - sRect.top;
+      const bx = b.left + b.width/2 - sRect.left;
+      const by = b.top + b.height/2 - sRect.top;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const dist = Math.hypot(dx, dy) || 1;
+      const bend = Math.min(160, Math.max(60, dist * 0.3));
+      const cx1 = ax + dx * 0.33;
+      const cy1 = ay - Math.sign(dy || 1) * bend;
+      const cx2 = ax + dx * 0.66;
+      const cy2 = by + Math.sign(dy || 1) * bend;
+      const d = `M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`;
+      ibmCurveEl1.setAttribute('d', d);
+    }
+
+    function updateIbmCurve2() {
+      if (!ibmCurveEl2 || !ibmFromNodeId) return;
+      const fromNode = nodes.get(ibmFromNodeId);
+      if (!fromNode || !fromNode.el || !ibmGifEl2) return;
+      const sRect = stage.getBoundingClientRect();
+      const a = fromNode.el.getBoundingClientRect();
+      const b = ibmGifEl2.getBoundingClientRect();
+      const ax = a.left + a.width/2 - sRect.left;
+      const ay = a.top + a.height/2 - sRect.top;
+      const bx = b.left + b.width/2 - sRect.left;
+      const by = b.top + b.height/2 - sRect.top;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const dist = Math.hypot(dx, dy) || 1;
+      const bend = Math.min(160, Math.max(60, dist * 0.3));
+      const cx1 = ax + dx * 0.33;
+      const cy1 = ay - Math.sign(dy || 1) * bend;
+      const cx2 = ax + dx * 0.66;
+      const cy2 = by + Math.sign(dy || 1) * bend;
+      const d = `M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`;
+      ibmCurveEl2.setAttribute('d', d);
+    }
+
+    function ensureIbmGif1() {
+      if (ibmGifEl1) return ibmGifEl1;
+      const wrap = document.createElement('div');
+      wrap.className = 'ibm-gif1 hidden';
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.style.position = 'absolute';
+      wrap.style.left = '24px';
+      wrap.style.top = '24px';
+      wrap.style.width = '160px';
+      wrap.style.height = '160px';
+      wrap.style.border = '2px solid #000';
+      wrap.style.borderRadius = '8px';
+      wrap.style.overflow = 'hidden';
+      wrap.style.boxShadow = '0 4px 16px rgba(0,0,0,.15)';
+      wrap.style.cursor = 'pointer';
+      const img = document.createElement('img');
+      img.src = 'gif/gif art cinema 4d GIF by slater.gif';
+      img.alt = 'gif art cinema 4d by slater';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      wrap.appendChild(img);
+      wrap.addEventListener('click', () => {
+        try {
+          const isSameSrc = (ibmSpringPlayer.src || '').includes(SPRING_SRC);
+          const isPlaying = !ibmSpringPlayer.paused && !ibmSpringPlayer.ended && ibmSpringPlayer.currentTime > 0;
+          if (isSameSrc && isPlaying) {
+            ibmSpringPlayer.pause();
+            ibmSpringPlayer.currentTime = 0;
+            wrap.setAttribute('aria-pressed', 'false');
+            return;
+          }
+          if (!isSameSrc) ibmSpringPlayer.src = SPRING_SRC;
+          ibmSpringPlayer.currentTime = 0;
+          ibmSpringPlayer.play().then(() => { wrap.setAttribute('aria-pressed', 'true'); }).catch(() => {});
+        } catch (_) {}
+      });
+      ibmSpringPlayer.addEventListener('ended', () => { try { wrap.setAttribute('aria-pressed', 'false'); } catch(_){} });
+      wrap.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); wrap.click(); } });
+      stage.appendChild(wrap);
+      ibmGifEl1 = wrap;
+      return wrap;
+    }
+
+    function ensureIbmGif2() {
+      if (ibmGifEl2) return ibmGifEl2;
+      const wrap = document.createElement('div');
+      wrap.className = 'ibm-gif2 hidden';
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.style.position = 'absolute';
+      wrap.style.right = '24px';
+      wrap.style.top = '24px';
+      wrap.style.width = '160px';
+      wrap.style.height = '160px';
+      wrap.style.border = '2px solid #000';
+      wrap.style.borderRadius = '8px';
+      wrap.style.overflow = 'hidden';
+      wrap.style.boxShadow = '0 4px 16px rgba(0,0,0,.15)';
+      wrap.style.cursor = 'pointer';
+      const img = document.createElement('img');
+      img.src = 'gif/GIF by mr. div.gif';
+      img.alt = 'GIF by mr. div';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      wrap.appendChild(img);
+      wrap.addEventListener('click', () => {
+        try {
+          const isSameSrc = (ibmStovePlayer.src || '').includes(STOVE_SRC);
+          const isPlaying = !ibmStovePlayer.paused && !ibmStovePlayer.ended && ibmStovePlayer.currentTime > 0;
+          if (isSameSrc && isPlaying) {
+            ibmStovePlayer.pause();
+            ibmStovePlayer.currentTime = 0;
+            wrap.setAttribute('aria-pressed', 'false');
+            return;
+          }
+          if (!isSameSrc) ibmStovePlayer.src = STOVE_SRC;
+          ibmStovePlayer.currentTime = 0;
+          ibmStovePlayer.play().then(() => { wrap.setAttribute('aria-pressed', 'true'); }).catch(() => {});
+        } catch (_) {}
+      });
+      ibmStovePlayer.addEventListener('ended', () => { try { wrap.setAttribute('aria-pressed', 'false'); } catch(_){} });
+      wrap.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); wrap.click(); } });
+      stage.appendChild(wrap);
+      ibmGifEl2 = wrap;
+      return wrap;
+    }
+
+    function ensureIbmCurve1() {
+      if (ibmCurveEl1) return ibmCurveEl1;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.classList.add('ibm-curve-1');
+      path.setAttribute('stroke', '#000');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      wires.appendChild(path);
+      ibmCurveEl1 = path;
+      return path;
+    }
+
+    function ensureIbmCurve2() {
+      if (ibmCurveEl2) return ibmCurveEl2;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.classList.add('ibm-curve-2');
+      path.setAttribute('stroke', '#000');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      wires.appendChild(path);
+      ibmCurveEl2 = path;
+      return path;
+    }
+
+    function showIbmFlow(fromNode) {
+      ensureIbmGif1();
+      ensureIbmGif2();
+      ensureIbmCurve1();
+      ensureIbmCurve2();
+      ibmGifEl1.classList.remove('hidden');
+      ibmGifEl2.classList.remove('hidden');
+      ibmFromNodeId = fromNode.id;
+      updateIbmCurve1();
+      updateIbmCurve2();
+      try {
+        const len1 = ibmCurveEl1.getTotalLength();
+        ibmCurveEl1.style.strokeDasharray = String(len1);
+        ibmCurveEl1.style.strokeDashoffset = String(len1);
+        void ibmCurveEl1.getBoundingClientRect();
+        ibmCurveEl1.style.strokeDashoffset = '0';
+      } catch (_) {}
+      try {
+        const len2 = ibmCurveEl2.getTotalLength();
+        ibmCurveEl2.style.strokeDasharray = String(len2);
+        ibmCurveEl2.style.strokeDashoffset = String(len2);
+        void ibmCurveEl2.getBoundingClientRect();
+        ibmCurveEl2.style.strokeDashoffset = '0';
+      } catch (_) {}
+    }
+
+    // clicky curve helpers
+    function updateClickyCurve() {
+      if (!clickyCurveEl || !clickyFromNodeId) return;
+      const fromNode = nodes.get(clickyFromNodeId);
+      if (!fromNode || !fromNode.el || !clickyGifEl) return;
+      const sRect = stage.getBoundingClientRect();
+      const a = fromNode.el.getBoundingClientRect();
+      const b = clickyGifEl.getBoundingClientRect();
+      const ax = a.left + a.width/2 - sRect.left;
+      const ay = a.top + a.height/2 - sRect.top;
+      const bx = b.left + b.width/2 - sRect.left;
+      const by = b.top + b.height/2 - sRect.top;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const dist = Math.hypot(dx, dy) || 1;
+      const bend = Math.min(160, Math.max(60, dist * 0.3));
+      const cx1 = ax + dx * 0.33;
+      const cy1 = ay - Math.sign(dy || 1) * bend;
+      const cx2 = ax + dx * 0.66;
+      const cy2 = by + Math.sign(dy || 1) * bend;
+      const d = `M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`;
+      clickyCurveEl.setAttribute('d', d);
+    }
+
+    function ensureClickyGif() {
+      if (clickyGifEl) return clickyGifEl;
+      const wrap = document.createElement('div');
+      wrap.className = 'clicky-gif hidden';
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.style.position = 'absolute';
+      wrap.style.left = '50%';
+      wrap.style.top = '24px';
+      wrap.style.transform = 'translateX(-50%)';
+      wrap.style.width = '160px';
+      wrap.style.height = '160px';
+      wrap.style.border = '2px solid #000';
+      wrap.style.borderRadius = '8px';
+      wrap.style.overflow = 'hidden';
+      wrap.style.boxShadow = '0 4px 16px rgba(0,0,0,.15)';
+      wrap.style.cursor = 'pointer';
+      const img = document.createElement('img');
+      img.src = 'gif/3D Loop GIF by Pi-Slices.gif';
+      img.alt = '3D Loop GIF by Pi-Slices';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      wrap.appendChild(img);
+      wrap.addEventListener('click', () => {
+        try {
+          const isSameSrc = (clickySfxPlayer.src || '').includes(CLACK_SRC);
+          const isPlaying = !clickySfxPlayer.paused && !clickySfxPlayer.ended && clickySfxPlayer.currentTime > 0;
+          if (isSameSrc && isPlaying) {
+            clickySfxPlayer.pause();
+            clickySfxPlayer.currentTime = 0;
+            wrap.setAttribute('aria-pressed', 'false');
+            return;
+          }
+          if (!isSameSrc) clickySfxPlayer.src = CLACK_SRC;
+          clickySfxPlayer.currentTime = 0;
+          clickySfxPlayer.play().then(() => { wrap.setAttribute('aria-pressed', 'true'); }).catch(() => {});
+        } catch (_) {}
+      });
+      clickySfxPlayer.addEventListener('ended', () => { try { wrap.setAttribute('aria-pressed', 'false'); } catch(_){} });
+      wrap.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); wrap.click(); } });
+      stage.appendChild(wrap);
+      clickyGifEl = wrap;
+      return wrap;
+    }
+
+    function ensureClickyCurve() {
+      if (clickyCurveEl) return clickyCurveEl;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.classList.add('clicky-curve');
+      path.setAttribute('stroke', '#000');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      wires.appendChild(path);
+      clickyCurveEl = path;
+      return path;
+    }
+
+    function showClickyFlow(fromNode) {
+      ensureClickyGif();
+      ensureClickyCurve();
+      clickyGifEl.classList.remove('hidden');
+      clickyFromNodeId = fromNode.id;
+      updateClickyCurve();
+      try {
+        const len = clickyCurveEl.getTotalLength();
+        clickyCurveEl.style.strokeDasharray = String(len);
+        clickyCurveEl.style.strokeDashoffset = String(len);
+        void clickyCurveEl.getBoundingClientRect();
+        clickyCurveEl.style.strokeDashoffset = '0';
+      } catch (_) {}
+    }
+
+    // smooth curve helpers
+    function updateSmoothCurve() {
+      if (!smoothCurveEl || !smoothFromNodeId) return;
+      const fromNode = nodes.get(smoothFromNodeId);
+      if (!fromNode || !fromNode.el || !smoothGifEl) return;
+      const sRect = stage.getBoundingClientRect();
+      const a = fromNode.el.getBoundingClientRect();
+      const b = smoothGifEl.getBoundingClientRect();
+      const ax = a.left + a.width/2 - sRect.left;
+      const ay = a.top + a.height/2 - sRect.top;
+      const bx = b.left + b.width/2 - sRect.left;
+      const by = b.top + b.height/2 - sRect.top;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const dist = Math.hypot(dx, dy) || 1;
+      const bend = Math.min(160, Math.max(60, dist * 0.3));
+      const cx1 = ax + dx * 0.33;
+      const cy1 = ay - Math.sign(dy || 1) * bend;
+      const cx2 = ax + dx * 0.66;
+      const cy2 = by + Math.sign(dy || 1) * bend;
+      const d = `M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`;
+      smoothCurveEl.setAttribute('d', d);
+    }
+
+    function ensureSmoothGif() {
+      if (smoothGifEl) return smoothGifEl;
+      const wrap = document.createElement('div');
+      wrap.className = 'smooth-gif hidden';
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.style.position = 'absolute';
+      wrap.style.right = '50%';
+      wrap.style.bottom = '24px';
+      wrap.style.transform = 'translateX(50%)';
+      wrap.style.width = '180px';
+      wrap.style.height = '180px';
+      wrap.style.border = '2px solid #000';
+      wrap.style.borderRadius = '8px';
+      wrap.style.overflow = 'hidden';
+      wrap.style.boxShadow = '0 4px 16px rgba(0,0,0,.15)';
+      wrap.style.cursor = 'pointer';
+      const img = document.createElement('img');
+      img.src = 'gif/Art Loop GIF by Pi-Slices (1).gif';
+      img.alt = 'Art Loop GIF by Pi-Slices (1)';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      wrap.appendChild(img);
+      wrap.addEventListener('click', () => {
+        try {
+          const isSameSrc = (smoothSfxPlayer.src || '').includes(SMOOTH_SRC);
+          const isPlaying = !smoothSfxPlayer.paused && !smoothSfxPlayer.ended && smoothSfxPlayer.currentTime > 0;
+          if (isSameSrc && isPlaying) {
+            smoothSfxPlayer.pause();
+            smoothSfxPlayer.currentTime = 0;
+            wrap.setAttribute('aria-pressed', 'false');
+            return;
+          }
+          if (!isSameSrc) smoothSfxPlayer.src = SMOOTH_SRC;
+          smoothSfxPlayer.currentTime = 0;
+          smoothSfxPlayer.play().then(() => { wrap.setAttribute('aria-pressed', 'true'); }).catch(() => {});
+        } catch (_) {}
+      });
+      smoothSfxPlayer.addEventListener('ended', () => { try { wrap.setAttribute('aria-pressed', 'false'); } catch(_){} });
+      wrap.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); wrap.click(); } });
+      stage.appendChild(wrap);
+      smoothGifEl = wrap;
+      return wrap;
+    }
+
+    function ensureSmoothCurve() {
+      if (smoothCurveEl) return smoothCurveEl;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.classList.add('smooth-curve');
+      path.setAttribute('stroke', '#000');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      wires.appendChild(path);
+      smoothCurveEl = path;
+      return path;
+    }
+
+    function showSmoothFlow(fromNode) {
+      ensureSmoothGif();
+      ensureSmoothCurve();
+      smoothGifEl.classList.remove('hidden');
+      smoothFromNodeId = fromNode.id;
+      updateSmoothCurve();
+      try {
+        const len = smoothCurveEl.getTotalLength();
+        smoothCurveEl.style.strokeDasharray = String(len);
+        smoothCurveEl.style.strokeDashoffset = String(len);
+        void smoothCurveEl.getBoundingClientRect();
+        smoothCurveEl.style.strokeDashoffset = '0';
+      } catch (_) {}
+    }
+
+    // quiet curves helpers
+    function updateQuietCurve1() {
+      if (!quietCurveEl1 || !quietFromNodeId) return;
+      const fromNode = nodes.get(quietFromNodeId);
+      if (!fromNode || !fromNode.el || !quietGifEl1) return;
+      const sRect = stage.getBoundingClientRect();
+      const a = fromNode.el.getBoundingClientRect();
+      const b = quietGifEl1.getBoundingClientRect();
+      const ax = a.left + a.width/2 - sRect.left;
+      const ay = a.top + a.height/2 - sRect.top;
+      const bx = b.left + b.width/2 - sRect.left;
+      const by = b.top + b.height/2 - sRect.top;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const dist = Math.hypot(dx, dy) || 1;
+      const bend = Math.min(160, Math.max(60, dist * 0.3));
+      const cx1 = ax + dx * 0.33;
+      const cy1 = ay - Math.sign(dy || 1) * bend;
+      const cx2 = ax + dx * 0.66;
+      const cy2 = by + Math.sign(dy || 1) * bend;
+      const d = `M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`;
+      quietCurveEl1.setAttribute('d', d);
+    }
+
+    function updateQuietCurve2() {
+      if (!quietCurveEl2 || !quietFromNodeId) return;
+      const fromNode = nodes.get(quietFromNodeId);
+      if (!fromNode || !fromNode.el || !quietGifEl2) return;
+      const sRect = stage.getBoundingClientRect();
+      const a = fromNode.el.getBoundingClientRect();
+      const b = quietGifEl2.getBoundingClientRect();
+      const ax = a.left + a.width/2 - sRect.left;
+      const ay = a.top + a.height/2 - sRect.top;
+      const bx = b.left + b.width/2 - sRect.left;
+      const by = b.top + b.height/2 - sRect.top;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const dist = Math.hypot(dx, dy) || 1;
+      const bend = Math.min(160, Math.max(60, dist * 0.3));
+      const cx1 = ax + dx * 0.33;
+      const cy1 = ay - Math.sign(dy || 1) * bend;
+      const cx2 = ax + dx * 0.66;
+      const cy2 = by + Math.sign(dy || 1) * bend;
+      const d = `M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`;
+      quietCurveEl2.setAttribute('d', d);
+    }
+
+    function ensureQuietGif1() {
+      if (quietGifEl1) return quietGifEl1;
+      const wrap = document.createElement('div');
+      wrap.className = 'quiet-gif1 hidden';
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.style.position = 'absolute';
+      wrap.style.left = '24px';
+      wrap.style.bottom = '24px';
+      wrap.style.width = '160px';
+      wrap.style.height = '160px';
+      wrap.style.border = '2px solid #000';
+      wrap.style.borderRadius = '8px';
+      wrap.style.overflow = 'hidden';
+      wrap.style.boxShadow = '0 4px 16px rgba(0,0,0,.15)';
+      wrap.style.cursor = 'pointer';
+      const img = document.createElement('img');
+      img.src = 'gif/3d wave GIF by Pi-Slices.gif';
+      img.alt = '3d wave GIF by Pi-Slices';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      wrap.appendChild(img);
+      // toggle play/stop footsteps sfx
+      wrap.addEventListener('click', () => {
+        try {
+          const isSameSrc = (quietFootstepsPlayer.src || '').includes(FOOTSTEPS_SRC);
+          const isPlaying = !quietFootstepsPlayer.paused && !quietFootstepsPlayer.ended && quietFootstepsPlayer.currentTime > 0;
+          if (isSameSrc && isPlaying) {
+            quietFootstepsPlayer.pause();
+            quietFootstepsPlayer.currentTime = 0;
+            wrap.setAttribute('aria-pressed', 'false');
+            return;
+          }
+          if (!isSameSrc) quietFootstepsPlayer.src = FOOTSTEPS_SRC;
+          quietFootstepsPlayer.currentTime = 0;
+          quietFootstepsPlayer.play().then(() => { wrap.setAttribute('aria-pressed', 'true'); }).catch(() => {});
+        } catch (_) {}
+      });
+      quietFootstepsPlayer.addEventListener('ended', () => { try { wrap.setAttribute('aria-pressed', 'false'); } catch(_){} });
+      wrap.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); wrap.click(); } });
+      stage.appendChild(wrap);
+      quietGifEl1 = wrap;
+      return wrap;
+    }
+
+    function ensureQuietGif2() {
+      if (quietGifEl2) return quietGifEl2;
+      const wrap = document.createElement('div');
+      wrap.className = 'quiet-gif2 hidden';
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.style.position = 'absolute';
+      wrap.style.right = '24px';
+      wrap.style.top = 'calc(24px + 180px)';
+      wrap.style.width = '160px';
+      wrap.style.height = '160px';
+      wrap.style.border = '2px solid #000';
+      wrap.style.borderRadius = '8px';
+      wrap.style.overflow = 'hidden';
+      wrap.style.boxShadow = '0 4px 16px rgba(0,0,0,.15)';
+      wrap.style.cursor = 'pointer';
+      const img = document.createElement('img');
+      img.src = 'gif/giphy.gif';
+      img.alt = 'giphy';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      wrap.appendChild(img);
+      // toggle play/stop cloud sfx
+      wrap.addEventListener('click', () => {
+        try {
+          const isSameSrc = (quietCloudPlayer.src || '').includes(QUIET_CLOUD_SRC);
+          const isPlaying = !quietCloudPlayer.paused && !quietCloudPlayer.ended && quietCloudPlayer.currentTime > 0;
+          if (isSameSrc && isPlaying) {
+            quietCloudPlayer.pause();
+            quietCloudPlayer.currentTime = 0;
+            wrap.setAttribute('aria-pressed', 'false');
+            return;
+          }
+          if (!isSameSrc) quietCloudPlayer.src = QUIET_CLOUD_SRC;
+          quietCloudPlayer.currentTime = 0;
+          quietCloudPlayer.play().then(() => { wrap.setAttribute('aria-pressed', 'true'); }).catch(() => {});
+        } catch (_) {}
+      });
+      quietCloudPlayer.addEventListener('ended', () => { try { wrap.setAttribute('aria-pressed', 'false'); } catch(_){} });
+      wrap.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); wrap.click(); } });
+      stage.appendChild(wrap);
+      quietGifEl2 = wrap;
+      return wrap;
+    }
+
+    function ensureQuietCurve1() {
+      if (quietCurveEl1) return quietCurveEl1;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.classList.add('quiet-curve-1');
+      path.setAttribute('stroke', '#000');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      wires.appendChild(path);
+      quietCurveEl1 = path;
+      return path;
+    }
+
+    function ensureQuietCurve2() {
+      if (quietCurveEl2) return quietCurveEl2;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.classList.add('quiet-curve-2');
+      path.setAttribute('stroke', '#000');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      wires.appendChild(path);
+      quietCurveEl2 = path;
+      return path;
+    }
+
+    function showQuietFlow(fromNode) {
+      ensureQuietGif1();
+      ensureQuietGif2();
+      ensureQuietCurve1();
+      ensureQuietCurve2();
+      quietGifEl1.classList.remove('hidden');
+      quietGifEl2.classList.remove('hidden');
+      quietFromNodeId = fromNode.id;
+      updateQuietCurve1();
+      updateQuietCurve2();
+      try {
+        const len1 = quietCurveEl1.getTotalLength();
+        quietCurveEl1.style.strokeDasharray = String(len1);
+        quietCurveEl1.style.strokeDashoffset = String(len1);
+        void quietCurveEl1.getBoundingClientRect();
+        quietCurveEl1.style.strokeDashoffset = '0';
+      } catch (_) {}
+      try {
+        const len2 = quietCurveEl2.getTotalLength();
+        quietCurveEl2.style.strokeDasharray = String(len2);
+        quietCurveEl2.style.strokeDashoffset = String(len2);
+        void quietCurveEl2.getBoundingClientRect();
+        quietCurveEl2.style.strokeDashoffset = '0';
+      } catch (_) {}
+    }
+
+    function refreshAllWires() {
+      for (const e of edges) {
+        const A = nodes.get(e.from);
+        const B = nodes.get(e.to);
+        if (A && B) updateWirePosition(A, B, e.line);
+      }
+      for (const a of anchors.values()) {
+        const A = nodes.get(a.from);
+        const B = nodes.get(a.to);
+        if (A && B) updateWirePosition(A, B, a.line);
+      }
+      for (const p of previews.values()) {
+        const A = nodes.get(p.from);
+        const B = nodes.get(p.to);
+        if (A && B) updateWirePosition(A, B, p.line);
+      }
+      updatePoppyCurve();
+      updateCreamCurve();
+      updateThockyCurve();
+      updateThockyCurve2();
+      updateIbmCurve1();
+      updateIbmCurve2();
+      updateClickyCurve();
+      updateSmoothCurve();
+      updateQuietCurve1();
+      updateQuietCurve2();
+    }
+
+    function hasAnyWires() {
+      return edges.length > 0 || anchors.size > 0 || previews.size > 0;
+    }
+
+    // 统一调度：repack 节流（避免频繁触发卡顿）
+    let repackScheduled = false;
+    function scheduleRepack() {
+      if (repackScheduled) return;
+      repackScheduled = true;
+      requestAnimationFrame(() => {
+        repackScheduled = false;
+        // 若当前没有任何父子边或节点较少（仅根），跳过
+        if (!edges.length || nodes.size <= 2) { refreshAllWires(); return; }
+        try {
+          repackAll();
+        } catch (e) {
+          // 避免异常导致循环卡死
+          console.error('repack failed', e);
+        }
+      });
+    }
+
+    // 在元素移动过渡期间，让连线持续跟随（帧预算，避免长时间占用）
+    let wireTrackHandle = null;
+    let wireTrackFramesLeft = 0;
+    const WIRE_TRACK_MAX_FRAMES = 48; // 最多跟随约 48 帧（~800ms@60fps）
+    function pulseWireTrackingFrames(frames = 16) {
+      if (!hasAnyWires()) return; // 无连线就不跟随
+      wireTrackFramesLeft = Math.min(WIRE_TRACK_MAX_FRAMES, wireTrackFramesLeft + Math.max(1, frames));
+      if (wireTrackHandle) return;
+      const tick = () => {
+        refreshAllWires();
+        if (--wireTrackFramesLeft > 0) {
+          wireTrackHandle = requestAnimationFrame(tick);
+        } else {
+          wireTrackHandle = null;
+        }
+      };
+      wireTrackHandle = requestAnimationFrame(tick);
+    }
+
+    function getRootFor(node) {
+      // segs: ["audio","switch","#linear", ...]
+      if (!node || !Array.isArray(node.segs) || node.segs.length < 3) return null;
+      const rootSeg = node.segs[2];
+      const rid = [...ROOT, rootSeg].join('/');
+      return nodes.get(rid) || null;
+    }
+
+    function ensureAnchorFor(node) {
+      // 根节点无需锚线
+      if (!node || (Array.isArray(node.segs) && node.segs.length === 3)) return;
+      if (anchors.has(node.id)) return; // 已存在
+      const root = getRootFor(node);
+      if (!root) return;
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('stroke', '#000');
+      line.setAttribute('stroke-width', '2');
+      wires.appendChild(line);
+      const rec = { from: root.id, to: node.id, line };
+      anchors.set(node.id, rec);
+      updateWirePosition(root, node, line);
+      // 简化：移除线条绘制动画
+    }
+
+    function removeAnchorFor(node) {
+      if (!node) return;
+      const rec = anchors.get(node.id);
+      if (!rec) return;
+      if (rec.line && rec.line.parentNode) rec.line.parentNode.removeChild(rec.line);
+      anchors.delete(node.id);
+    }
+
+    function showPreviewAnchor(node) {
+      // 根节点或已存在持久锚线则不显示预览
+      if (!node || (Array.isArray(node.segs) && node.segs.length === 3)) return;
+      if (anchors.has(node.id) || previews.has(node.id)) return;
+      const root = getRootFor(node);
+      if (!root) return;
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('stroke', '#000');
+      line.setAttribute('stroke-width', '2');
+      wires.appendChild(line);
+      const rec = { from: root.id, to: node.id, line };
+      previews.set(node.id, rec);
+      updateWirePosition(root, node, line);
+      // 简化：移除线条绘制动画
+    }
+
+    function hidePreviewAnchor(node) {
+      if (!node) return;
+      const rec = previews.get(node.id);
+      if (!rec) return;
+      if (rec.line && rec.line.parentNode) rec.line.parentNode.removeChild(rec.line);
+      previews.delete(node.id);
+    }
+
+    // 重新居中根节点（#linear / #tactile）
+    function recenterRoots() {
+      const W = stage.clientWidth, H = stage.clientHeight;
+      const centerY = Math.round(H * 0.5);
+      const offsetX = Math.round(Math.min(180, W * 0.18));
+      for (const n of nodes.values()) {
+        const isRoot = n.type === 'folder' && n.segs && n.segs.length === 3 && (n.name === '#linear' || n.name === '#tactile');
+        if (isRoot) {
+          const x = n.name === '#linear' ? Math.round(W * 0.5) - offsetX : Math.round(W * 0.5) + offsetX;
+          const y = centerY;
+          placeNode(n, x, y);
+        }
+      }
+    }
+
+    // 构建父子关系
+    function buildGraph() {
+      const childrenByParent = new Map();
+      const parentOf = new Map();
+      for (const e of edges) {
+        if (!childrenByParent.has(e.from)) childrenByParent.set(e.from, []);
+        childrenByParent.get(e.from).push(e.to);
+        parentOf.set(e.to, e.from);
+      }
+      const roots = [];
+      for (const id of nodes.keys()) {
+        if (!parentOf.has(id)) roots.push(id);
+      }
+      return { childrenByParent, parentOf, roots };
+    }
+
+    // 基于父节点重新为所有子节点寻找不重叠位置
+    function repackAll() {
+      const { childrenByParent, roots } = buildGraph();
+      const rectCache = new Map();
+      const queue = roots.slice();
+      while (queue.length) {
+        const pid = queue.shift();
+        const parent = nodes.get(pid);
+        if (!parent) continue;
+        const childIds = childrenByParent.get(pid) || [];
+        for (const cid of childIds) {
+          const child = nodes.get(cid);
+          if (!child) continue;
+          const spot = findFreeSpot(parent.x, parent.y, child.el, child.id, rectCache);
+          placeNode(child, spot.x, spot.y);
+          rectCache.set(child.id, rectAt(child.el, spot.x, spot.y));
+          queue.push(cid);
+        }
+      }
+      refreshAllWires();
+    }
+
+    // 节点工厂
+    function makeNode({ id, type, name, segs, x, y }) {
+      const el = document.createElement('div');
+      el.className = `entry ${type} spawn`;
+      el.textContent = name;
+      el.setAttribute('role', 'button');
+      el.setAttribute('tabindex', '0');
+      // 随机着色 + 出场动效
+      el.style.color = pickColor();
+      stage.appendChild(el);
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('spawn')));
+      const node = { id, type, name, segs, x, y, el, expandedFolders: false, expandedFiles: false };
+      nodes.set(id, node);
+      placeNode(node, x, y);
+      el.addEventListener('click', () => onNodeClick(node));
+      el.addEventListener('mouseenter', () => showPreviewAnchor(node));
+      el.addEventListener('mouseleave', () => hidePreviewAnchor(node));
+      el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onNodeClick(node); } });
+      return node;
+    }
+
+    function placeNode(node, x, y) {
+      node.x = x; node.y = y;
+      node.el.style.setProperty('--tx', x + 'px');
+      node.el.style.setProperty('--ty', y + 'px');
+      refreshAllWires();
+      // 触发线条跟随动画，与 CSS transform 过渡同步（短时帧预算）
+      pulseWireTrackingFrames(16);
+    }
+
+    // 点击逻辑
+    function onNodeClick(node) {
+      // 点击切换锚线（存在则关闭，不存在则建立）
+      if (anchors.has(node.id)) {
+        removeAnchorFor(node);
+      } else {
+        ensureAnchorFor(node);
+      }
+      // 若有预览线，点击后移除预览
+      hidePreviewAnchor(node);
+      if (node.type === 'file') {
+        playFile(node);
+        // if this file is under #poppy / #cream / #thocky / #ibm / #clicky / #smooth / #quiet, show curve(s) to GIF(s)
+        if (Array.isArray(node.segs)) {
+          if (node.segs.includes('#poppy')) showPoppyFlow(node);
+          if (node.segs.includes('#cream')) showCreamFlow(node);
+          if (node.segs.includes('#thocky')) showThockyFlow(node);
+          if (node.segs.includes('#ibm')) showIbmFlow(node);
+          if (node.segs.includes('#clicky')) showClickyFlow(node);
+          if (node.segs.includes('#smooth')) showSmoothFlow(node);
+          if (node.segs.includes('#quiet')) showQuietFlow(node);
+        }
+        return;
+      }
+      // folder: 展开
+      expandFolderNode(node);
+    }
+
+    function expandFolderNode(node) {
+      const rel = node.segs.slice(2); // segs 形如 ["audio","switch","#linear", ...]
+      const { folders, files } = resolveContent(rel);
+
+      const children = [];
+      if (!node.expandedFolders && folders.length) {
+        node.expandedFolders = true;
+        children.push(...folders.map(nm => ({ kind: 'folder', name: nm })));
+      } else if (!folders.length && !node.expandedFiles && files.length) {
+        // 若无子文件夹，直接展开文件
+        node.expandedFiles = true;
+        children.push(...files.map(nm => ({ kind: 'file', name: nm })));
+      } else if (node.expandedFolders && !node.expandedFiles && files.length) {
+        // 已展开过文件夹，再次点击补充文件
+        node.expandedFiles = true;
+        children.push(...files.map(nm => ({ kind: 'file', name: nm })));
+      } else {
+        // 已全部展开，无操作
+        return;
+      }
+
+      children.forEach((child) => {
+        let childSegs = node.segs.slice();
+        let type = 'folder';
+        let displayName = child.name;
+        if (child.kind === 'folder') {
+          childSegs.push(child.name);
+          type = 'folder';
+        } else {
+          childSegs.push(child.name);
+          type = 'file';
+          displayName = child.name.replace(/\.[^.]+$/, '');
+        }
+        const id = childSegs.join('/');
+        if (nodes.has(id)) return; // 避免重复
+
+        // 初始在父节点位置生成，以便得到尺寸
+        const cnode = makeNode({ id, type, name: displayName, segs: childSegs, x: node.x, y: node.y });
+        // 搜索不重叠坐标（带缓存）
+        const cache = new Map();
+        const spot = findFreeSpot(node.x, node.y, cnode.el, cnode.id, cache);
+        placeNode(cnode, spot.x, spot.y);
+        connect(node, cnode);
+      });
+
+      // 展开后整体轻度重排（节流调度），确保无重叠
+      scheduleRepack();
+    }
+
+    function playFile(node) {
+      const url = fullUrlFromSegs(node.segs.slice(2)); // 仅取 ROOT 之后的相对段
+      if (playingNodeId && nodes.has(playingNodeId)) {
+        const prev = nodes.get(playingNodeId);
+        prev.el.classList.remove('playing');
+      }
+      node.el.classList.add('playing');
+      playingNodeId = node.id;
+      player.pause();
+      player.src = url;
+      player.currentTime = 0;
+      player.play().catch(() => {/* 忽略自动播放限制错误 */});
+    }
+
+    // 初始化两个根词条 #linear / #tactile
+    function init() {
+      // 设定 SVG 尺寸属性匹配像素坐标
+      const resizeSvg = () => {
+        const w = stage.clientWidth, h = stage.clientHeight;
+        wires.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      };
+      window.addEventListener('resize', () => { resizeSvg(); refreshAllWires(); });
+      resizeSvg();
+
+      const W = stage.clientWidth, H = stage.clientHeight;
+      const centerY = Math.round(H * 0.5);
+      const offsetX = Math.round(Math.min(180, W * 0.18));
+
+      const linearSegs  = [...ROOT, '#linear'];
+      const tactileSegs = [...ROOT, '#tactile'];
+
+      makeNode({
+        id: linearSegs.join('/'),
+        type: 'folder',
+        name: '#linear',
+        segs: linearSegs,
+        x: Math.round(W * 0.5) - offsetX,
+        y: centerY
+      });
+
+      makeNode({
+        id: tactileSegs.join('/'),
+        type: 'folder',
+        name: '#tactile',
+        segs: tactileSegs,
+        x: Math.round(W * 0.5) + offsetX,
+        y: centerY
+      });
+
+      // 初始仅渲染根（无重排）
+    }
+
+    init();
+  })();
+  </script>
+</body>
+</html>
