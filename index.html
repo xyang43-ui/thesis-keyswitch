@@ -160,13 +160,13 @@
     // 说明：object 的键是子文件夹；数组是该文件夹内的文件列表；
     //       可同时存在 { files: [..], "#sub": [..] } 的混合结构。
     const TREE = {
-      "#linear": {
-        "#cream": [
+      "linear": {
+        "cream": [
           "linear_cream_hmx_butter.wav",
           "linear_cream_hmx_latte.wav",
           "linear_cream_kaliah_avocado.wav"
         ],
-        "#smooth": {
+        "smooth": {
           files: [
             "linear_smooth_alpacas.wav",
             "linear_smooth_cherry_mx_black.wav",
@@ -174,35 +174,35 @@
             "linear_smooth_turqoise_tealios.wav",
             "linear_tactile_smooth_tbcats_cloud_water.wav"
           ],
-          "#thocky": [
+          "thocky": [
             "linear_smooth_thocky_gateron_black_inks.wav",
             "linear_smooth_thocky_gateron_red_ink.wav"
           ]
         },
-        "#thocky": [
+        "thocky": [
           "linear_thocky_bsun_agarwood.wav",
           "linear_thocky_durock_ice_king.wav",
           "linear_thocky_gateron_oil_king.wav"
         ]
       },
-      "#tactile": {
-        "#clicky": [
+      "tactile": {
+        "clicky": [
           "tactile_click_arctic_fox.wav",
           "tactile_click_cherry_mx_blue.wav"
         ],
-        "#cream": ["tactile_cream_nk.wav"],
-        "#ibm": ["tactile_buckling_spring.wav"],
-        "#poppy": [
+        "cream": ["tactile_cream_nk.wav"],
+        "ibm": ["tactile_buckling_spring.wav"],
+        "poppy": [
           "tactile_pop_holy_pandas.wav",
           "tactile_pop_poison_gas.wav"
         ],
-        "#quiet": ["tactile_quiet_cherry_mx_brown.wav"],
-        "#smooth": [
+        "quiet": ["tactile_quiet_cherry_mx_brown.wav"],
+        "smooth": [
           "linear_tactile_smooth_tbcats_cloud_water.wav",
           "tactile_smooth_clicky_skcm_blue_alps.wav",
           "tactile_smooth_torpe.wav"
         ],
-        "#soft": ["tactile_soft_naevies.wav"]
+        "soft": ["tactile_soft_naevies.wav"]
       }
     };
 
@@ -283,8 +283,13 @@
     const FOOTSTEPS_SRC = 'audio/sfx/trail-walking-footsteps-246042.mp3';
     const QUIET_CLOUD_SRC = 'audio/sfx/cloud-spread-394490.mp3';
 
-    const joinUrl = (segments) => segments.map(encodeURIComponent).join('/');
-    const fullUrlFromSegs = (segs) => joinUrl([...ROOT, ...segs]);
+    const joinUrl = (segments) => segments.join('/');
+
+// 把 segs 里的 "#tactile" 这种去掉开头的 #
+const fullUrlFromSegs = (segs) => {
+  const cleaned = segs.map(s => (s.startsWith('#') ? s.slice(1) : s));
+  return joinUrl([...ROOT, ...cleaned]);
+};
 
     // 工具：根据相对段解析 TREE 节点，返回 { folders:[names], files:[names] }
     function resolveContent(relSegs) {
